@@ -203,6 +203,7 @@ body.overlay .desk,body.overlay .menubar,body.overlay .win,body.overlay .seg,bod
       <div class="lbl">角色</div><div class="chips" id="species"></div>
       <div class="lbl" id="accLbl">配件</div><div class="chips" id="accs"></div>
       <div class="lbl">顏色</div><div class="sws" id="sws"></div>
+      <div class="lbl" id="scrLbl" hidden>在哪個螢幕</div><div class="chips" id="screens" hidden></div>
       <button class="del" id="del">刪除這隻（不只是隱藏）</button>
     </div>
     <div class="card">
@@ -215,6 +216,7 @@ body.overlay .desk,body.overlay .menubar,body.overlay .win,body.overlay .seg,bod
       <div class="setrow"><span>浮在桌面上</span><button class="tog" id="tgOverlay" role="switch" aria-checked="true" aria-label="浮在桌面上"></button></div>
       <div class="setrow"><label for="sizeR">大小</label><input type="range" id="sizeR" min="0.35" max="1.2" step="0.05" style="flex:1;max-width:180px;accent-color:var(--accent)"></div>
       <div class="setrow"><span>開機時自動開啟</span><button class="tog" id="tgAuto" role="switch" aria-checked="false" aria-label="開機時自動開啟"></button></div>
+      <div class="lbl" style="margin:0" id="verLbl"></div>
       <div class="lbl" style="margin:0">隨時可以從選單列（Mac）或右下角工作列（Windows）的小圖示叫出這個視窗。</div>
     </div>
   </aside>
@@ -272,7 +274,9 @@ cfgs=cfgs.filter(c=>SPECIES[c.species]&&ACCS[c.acc]&&ROOMS[c.room]);if(!cfgs.len
 /* the critter that shows whatever Claude is doing right now (fed live by the desktop add-on) */
 let selId=store.get('buddy.sel',cfgs[0].id);if(!cfgs.find(c=>c.id===selId))selId=cfgs[0].id;
 let view='desk';
-const save=()=>{if(MODE==='settings'){const cur=store.get('buddy.agents',[])||[];cfgs.forEach(c=>{const o=cur.find(x=>x.id===c.id);if(o){c.fx=o.fx;c.fy=o.fy;if(o.key&&!c.key){c.key=o.key;c.task=o.task}}})}
+const movedHere=new Set(); /* critters whose screen was just changed in the settings window */
+const save=()=>{if(MODE==='settings'){const cur=store.get('buddy.agents',[])||[];cfgs.forEach(c=>{const o=cur.find(x=>x.id===c.id);if(o){
+    if(!movedHere.has(c.id)){c.fx=o.fx;c.fy=o.fy;c.display=o.display}if(o.key&&!c.key){c.key=o.key;c.task=o.task}}});movedHere.clear()}
   store.set('buddy.agents',cfgs);store.set('buddy.sel',selId)};
 
 /* ---------- three ---------- */
@@ -674,9 +678,13 @@ Object.entries(ROOMS).forEach(([k,R])=>{const b=document.createElement('button')
   b.innerHTML=`<i style="background:${R.sw}"></i><span>${R.zh}<small>${R.role}</small></span>`;
   b.onclick=()=>{const A=sel();A.c.room=k;save();paintEditor();paintList();if(view==='room')setView('room')};$('rooms').appendChild(b)});
 const nm=$('nm');nm.oninput=()=>{const A=sel();A.c.name=nm.value.trim()||'無名';save();paintList()};
-function paintEditor(){const A=sel();if(document.activeElement!==nm)nm.value=A.c.name;
+function paintEditor(){const A=sel();if(MODE==='settings')paintScreens();if(document.activeElement!==nm)nm.value=A.c.name;
   [['species','species'],['accs','acc'],['sws','color'],['rooms','room']].forEach(([id,k])=>$(id).querySelectorAll('[data-k]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===(k==='acc'?effAcc(A.c):A.c[k]))));
   $('del').hidden=agents.length<=1}
+function paintScreens(){const el=$('screens');if(!el)return;const many=DISPLAYS.length>1;el.hidden=!many;$('scrLbl').hidden=!many;if(!many)return;
+  const A=sel(),pid=(DISPLAYS.find(d=>d.primary)||DISPLAYS[0]).id,cur=DISPLAYS.some(d=>d.id===A.c.display)?A.c.display:pid;el.innerHTML='';
+  DISPLAYS.forEach(d=>{const b=document.createElement('button');b.className='chip';b.textContent=d.label;b.title=d.size;b.setAttribute('aria-pressed',d.id===cur);
+    b.onclick=()=>{const A=sel();A.c.display=d.id;A.c.fx=.86;A.c.fy=.9;movedHere.add(A.c.id);save();paintScreens();hearts(A)};el.appendChild(b)})}
 function select(A){selId=A.c.id;save();paintList();paintEditor();if(view==='room')setView('room')}
 const NAMES=['Nini','Bobo','Kiki','Lulu','Toto','Mimi','Coco','Yuzu'];
 $('add').onclick=()=>{if(agents.length>=8)return;const used=new Set(agents.map(A=>A.c.name));const ks=Object.keys(SPECIES),as=Object.keys(ACCS);
@@ -709,7 +717,8 @@ window.addEventListener('storage',e=>{if(!e.key||!e.key.startsWith('buddy.'))ret
 
 /* ---------- settings: Claude connection + app switches ---------- */
 function ago(ts){if(!ts)return '';const m=Math.round((Date.now()-ts)/60000);return m<1?'剛剛':m<60?m+' 分鐘前':Math.round(m/60)+' 小時前'}
-function paintStatus(st){if(!st||MODE!=='settings')return;const el=$('liveSt'),note=$('connNote'),btn=$('connBtn'),err=$('connErr'),card=$('connCard');
+let DISPLAYS=[];
+function paintStatus(st){if(!st||MODE!=='settings')return;if(Array.isArray(st.displays)){DISPLAYS=st.displays;paintScreens()}if(st.version)$('verLbl').textContent='版本 '+st.version;const el=$('liveSt'),note=$('connNote'),btn=$('connBtn'),err=$('connErr'),card=$('connCard');
   err.textContent=st.serverError==='PORT_IN_USE'?'有另一個 Agent Buddy 正在執行，或別的程式佔用了通訊埠 47321。請先結束它再重新打開。':'';
   if(st.connected){el.textContent='已連接 Claude Code';el.className='livest on';card.classList.add('ok');btn.textContent='解除連接';
     note.textContent=st.lastEventAt?`最後一次收到 Claude 的動態：${ago(st.lastEventAt)}`:'新開一個 Claude Code 對話，叫它做點事，小夥伴就會動起來。（已經開著的對話要重新開始一次）'}
@@ -770,7 +779,7 @@ function fitWindow(nowMs){if(nowMs-lastFit<400)return;lastFit=nowMs;
   if(fits&&spare<240)return;
   winRect={x:r.x,y:r.y};window.buddy.setBounds(r)}
 /* power saving: low frame rate while everyone is idle, nothing at all on a screen with no critters or while hidden */
-let lastDraw=0,emptyDrawn=false;
+let lastDraw=0,emptyDrawn=false,lastCursor=0;
 function frame(){
   if(document.hidden){setTimeout(frame,800);return}
   const nowMs=performance.now();
@@ -824,6 +833,11 @@ function frame(){
   if(view==='room'){envAnims.forEach(f=>f(t));tickParts(dt,t);controls.update()}
   tickFx(dt);applyView();renderer.render(scene,camera);
   if(SHRINK&&window.buddy)fitWindow(nowMs);
+  if(MODE==='overlay'&&drag&&window.buddy&&nowMs-lastCursor>150){lastCursor=nowMs;const D=drag;
+    window.buddy.cursor().then(r=>{if(!r||r.display===DISPLAY||drag!==D)return;
+      /* the mouse crossed onto another screen: hand the critter to that screen's window */
+      D.dragging=false;drag=null;down=null;D.c.display=r.display;D.c.fx=Math.min(.95,Math.max(.05,r.fx));D.c.fy=Math.min(.97,Math.max(.25,r.fy+.08));
+      if(interactive){interactive=false;window.buddy.setInteractive(false)}save()}).catch(()=>{})}
   // bubbles
   const w=stageEl.clientWidth,h=stageEl.clientHeight;
   agents.forEach(A=>{if(!A.v.root.visible)return;const p=wpos(A,0,2.55+A.v.top,0).project(camera);

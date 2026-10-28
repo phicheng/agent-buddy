@@ -56,17 +56,26 @@ function resetOverlays() {
 let refitTimer = null
 function fitOverlays() { clearTimeout(refitTimer); refitTimer = setTimeout(resetOverlays, 400) }
 
+// A background app's new window can open behind other apps on macOS: always pull it to the front.
+function bringToFront(w) {
+  if (!w || w.isDestroyed()) return
+  if (w.isMinimized()) w.restore()
+  if (process.platform === 'darwin') { app.dock?.show(); app.focus({ steal: true }) }
+  w.show(); w.moveTop(); w.focus()
+  if (process.platform === 'win32') { w.setAlwaysOnTop(true); w.setAlwaysOnTop(false) }
+}
+
 function openSettings(agentId) {
   if (settings) {
     if (agentId) settings.webContents.send('buddy:select', agentId)
-    settings.show(); settings.focus(); return
+    bringToFront(settings); return
   }
   settings = new BrowserWindow({
-    width: 1180, height: 760, minWidth: 820, minHeight: 600, title: 'Agent Buddy',
+    width: 1180, height: 760, minWidth: 820, minHeight: 600, title: `Agent Buddy ${app.getVersion()}`,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#12142A' : '#E9ECF6', show: false, webPreferences: webPrefs,
   })
   settings.loadFile(RENDERER, { query: { mode: 'settings', ...(agentId ? { select: agentId } : {}) } })
-  settings.once('ready-to-show', () => settings.show())
+  settings.once('ready-to-show', () => bringToFront(settings))
   settings.on('closed', () => { settings = null; if (process.platform === 'darwin') app.dock?.hide() })
   if (process.platform === 'darwin') app.dock?.show()
 }
@@ -98,7 +107,10 @@ function startInbox() {
 }
 
 function statusPayload() {
-  return { ...hooks.status(), serverError, lastEventAt, autostart: app.getLoginItemSettings().openAtLogin, overlayVisible: overlaysShown }
+  const primary = screen.getPrimaryDisplay().id
+  let n = 1
+  const displays = screen.getAllDisplays().map(d => ({ id: String(d.id), primary: d.id === primary, label: d.id === primary ? '主螢幕' : `螢幕 ${++n}`, size: `${d.size.width}×${d.size.height}` }))
+  return { ...hooks.status(), serverError, lastEventAt, autostart: app.getLoginItemSettings().openAtLogin, overlayVisible: overlaysShown, version: app.getVersion(), displays }
 }
 
 // ---- tray ----
@@ -154,6 +166,13 @@ ipcMain.handle('buddy:locate', (_e, x, y) => {
   const d = screen.getDisplayNearestPoint({ x: Math.round(x), y: Math.round(y) })
   const wa = d.workArea
   return { display: String(d.id), fx: (x - wa.x) / wa.width, fy: (y - wa.y) / wa.height }
+})
+// While a critter is being dragged: which screen is the mouse on right now? (works even after the mouse leaves the window)
+ipcMain.handle('buddy:cursor', () => {
+  const p = screen.getCursorScreenPoint()
+  const d = screen.getDisplayNearestPoint(p)
+  const wa = d.workArea
+  return { display: String(d.id), fx: (p.x - wa.x) / wa.width, fy: (p.y - wa.y) / wa.height }
 })
 ipcMain.on('buddy:open-settings', (_e, agentId) => openSettings(agentId))
 ipcMain.handle('buddy:status', () => statusPayload())
