@@ -11,6 +11,7 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -21,16 +22,33 @@ jobs:
           node-version: 22
       - run: npm ci || npm install
       - run: npm test
-      - name: Build
-        run: npx electron-builder --publish never
+      - name: Signing (only when the secrets are set up)
+        shell: bash
         env:
-          # Optional. Without these the app is unsigned (see README for what users see).
-          CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          P12: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          P12_PASS: ${{ secrets.MAC_CERT_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.MAC_CERT_P12_BASE64 != '' }}
+          APPLE_PASS: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$P12" ]; then
+            { echo "CSC_LINK=$P12"; echo "CSC_KEY_PASSWORD=$P12_PASS"; echo "APPLE_ID=$APPLE_ID"; echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_PASS"; echo "APPLE_TEAM_ID=$APPLE_TEAM"; } >> "$GITHUB_ENV"
+            echo "SIGN_ARGS=" >> "$GITHUB_ENV"
+          else
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+            # no certificate: ad-hoc sign so Apple Silicon Macs can still open it
+            echo "SIGN_ARGS=-c.mac.identity=-" >> "$GITHUB_ENV"
+          fi
+      - name: Build
+        shell: bash
+        run: |
+          set -o pipefail
+          npx electron-builder --publish never $SIGN_ARGS 2>&1 | tee build.log
+      - name: Show the build error
+        if: failure()
+        shell: bash
+        run: |
+          echo "::error title=build::$(tail -c 2500 build.log | tr '\n' ' ' | sed 's/%/%25/g')"
       - uses: actions/upload-artifact@v4
         with:
           name: installers-${{ matrix.os }}
