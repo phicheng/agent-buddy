@@ -1,0 +1,73 @@
+{
+  "name": "agent-buddy",
+  "productName": "Agent Buddy",
+  "version": "0.1.0",
+  "description": "Cute 3D desktop companions that show what your Claude Code agents are doing, live.",
+  "main": "app/main/main.js",
+  "author": "Phi Cheng",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/run.js",
+    "dist": "electron-builder --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.17.0"
+  },
+  "build": {
+    "appId": "com.phicheng.agentbuddy",
+    "productName": "Agent Buddy",
+    "files": [
+      "app/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "artifactName": "AgentBuddy-${version}-${os}-${arch}.${ext}",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "extendInfo": {
+        "LSUIElement": true
+      }
+    },
+    "dmg": {
+      "title": "Agent Buddy"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Agent Buddy"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/phicheng/agent-buddy.git"
+  }
+}
