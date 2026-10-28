@@ -217,7 +217,7 @@ body.overlay .desk,body.overlay .menubar,body.overlay .win,body.overlay .seg,bod
       <div class="setrow"><label for="sizeR">大小</label><input type="range" id="sizeR" min="0.35" max="1.2" step="0.05" style="flex:1;max-width:180px;accent-color:var(--accent)"></div>
       <div class="setrow"><span>開機時自動開啟</span><button class="tog" id="tgAuto" role="switch" aria-checked="false" aria-label="開機時自動開啟"></button></div>
       <div class="lbl" style="margin:0" id="verLbl"></div>
-      <div class="lbl" style="margin:0">隨時可以從選單列（Mac）或右下角工作列（Windows）的小圖示叫出這個視窗。</div>
+      <div class="lbl" style="margin:0">點桌面上的小夥伴、按 ⌘⇧B（Windows 是 Ctrl+Shift+B），或再打開一次 Agent Buddy，都能叫出這個視窗。</div>
     </div>
   </aside>
 </div>
@@ -651,7 +651,7 @@ const deskScale=()=>Math.max(.32,Math.min(.46,halfW/11))*SIZE;
 const sel=()=>agents.find(A=>A.c.id===selId)||agents[0];
 function setView(v){view=v;hemi.intensity=.8;$('vDesk').setAttribute('aria-pressed',v==='desk');$('vRoom').setAttribute('aria-pressed',v==='room');
   stageEl.classList.toggle('room',v==='room');$('roomtag').hidden=v!=='room';
-  $('hint').textContent=v==='desk'?'在你的桌面上：拖曳移動牠，連點兩下打開設定':'拖曳旋轉看看 · 點一下選牠';
+  $('hint').textContent=v==='desk'?'在你的桌面上：點牠打開設定，按住可以拖曳':'拖曳旋轉看看 · 點一下選牠';
   if(v==='desk'){camera.position.set(0,0,DESK_Z);camera.lookAt(0,0,0);controls.enabled=false;scene.background=null;scene.fog=null;ground.visible=false;if(env)env.visible=false;if(parts)parts.visible=false;sun.castShadow=false}
   else{const r=sel().c.room;buildEnv(r);scene.background=env.userData.bg;scene.fog=env.userData.fog;ground.visible=false;const az=env.userData.az;controls.minAzimuthAngle=-az;controls.maxAzimuthAngle=az;controls.maxDistance=11;env.visible=true;parts.visible=true;sun.castShadow=true;
     camera.position.set(.6,2.6,9.4);controls.target.set(0,1.05,0);controls.enabled=true;controls.update();paintRoomTag()}}
@@ -750,7 +750,7 @@ canvas.addEventListener('pointermove',e=>{const r=canvas.getBoundingClientRect()
   if(MODE==='overlay'&&window.buddy){const want=!!hoverA;if(want!==interactive){interactive=want;window.buddy.setInteractive(want)}}});
 canvas.addEventListener('pointerleave',()=>{hoverA=null;if(MODE==='overlay'&&interactive&&!drag&&window.buddy){interactive=false;window.buddy.setInteractive(false)}});
 canvas.addEventListener('pointerup',e=>{if(down&&down.A&&Math.hypot(e.clientX-down.x,e.clientY-down.y)<5){const A=down.A;
-    if(MODE==='overlay'){A.pat=1;hearts(A);const now=Date.now();if(lastClick.A===A&&now-lastClick.t<400&&window.buddy)window.buddy.openSettings(A.c.id);lastClick={A,t:now}}
+    if(MODE==='overlay'){A.pat=1;hearts(A);if(window.buddy)window.buddy.openSettings(A.c.id)}
     else{select(A);A.pat=1;hearts(A)}}
   if(drag){const D=drag;D.dragging=false;
     const outside=e.clientX<0||e.clientY<0||e.clientX>innerWidth||e.clientY>innerHeight;
@@ -847,7 +847,7 @@ function frame(){
   requestAnimationFrame(frame);
 }
 resize();$('hw').onclick=()=>setHw(!hw);setHw(hw);setView('desk');paintList();paintEditor();requestAnimationFrame(frame);
-window.__buddy={MODE,agents,setView,dbg:()=>({winRect,iw:innerWidth,ih:innerHeight,view:camera.view&&{...camera.view},cw:canvas.width,ch:canvas.height,dpr:devicePixelRatio,halfH,halfW,feet:agents.map(A=>{const v=new THREE.Vector3().setFromMatrixPosition(A.v.root.matrixWorld);return [v.x,v.y]})})}; /* for the smoke test */
+window.__buddy={MODE,agents,setView,point:i=>{const A=agents[i];const v=new THREE.Vector3(0,1,0).applyMatrix4(A.v.pet.matrixWorld).project(camera);return {x:Math.round((v.x+1)/2*innerWidth),y:Math.round((1-v.y)/2*innerHeight)}},dbg:()=>({winRect,iw:innerWidth,ih:innerHeight,view:camera.view&&{...camera.view},cw:canvas.width,ch:canvas.height,dpr:devicePixelRatio,halfH,halfW,feet:agents.map(A=>{const v=new THREE.Vector3().setFromMatrixPosition(A.v.root.matrixWorld);return [v.x,v.y]})})}; /* for the smoke test */
 })();
 </script>
 

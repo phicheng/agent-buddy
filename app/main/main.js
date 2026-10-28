@@ -2,7 +2,7 @@
 // - one overlay window per screen: transparent, always on top, clicks pass through except over a critter
 // - settings window: dress-up, rooms, Claude connection
 // - a local inbox on 127.0.0.1 that Claude Code hooks post to (nothing is sent to the internet)
-const { app, BrowserWindow, screen, ipcMain, Tray, Menu, nativeImage, shell, nativeTheme } = require('electron')
+const { app, BrowserWindow, screen, ipcMain, Tray, Menu, nativeImage, shell, nativeTheme, globalShortcut } = require('electron')
 const http = require('http')
 const path = require('path')
 const { mapHook } = require('./map')
@@ -20,6 +20,8 @@ let lastEventAt = 0
 
 if (!app.requestSingleInstanceLock()) app.quit()
 app.on('second-instance', () => openSettings())
+// Opening Agent Buddy again from Applications / Spotlight / Launchpad brings up the settings window.
+app.on('activate', () => openSettings())
 
 const webPrefs = { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true }
 
@@ -31,7 +33,7 @@ function createOverlays() {
     const w = new BrowserWindow({
       ...d.workArea,
       transparent: true, frame: false, resizable: false, movable: false, hasShadow: false,
-      alwaysOnTop: true, skipTaskbar: true, focusable: false, fullscreenable: false,
+      alwaysOnTop: true, skipTaskbar: true, focusable: process.platform === 'darwin', fullscreenable: false,
       // keep animating while other apps have focus
       backgroundColor: '#00000000', show: false, webPreferences: { ...webPrefs, backgroundThrottling: false },
     })
@@ -191,6 +193,7 @@ ipcMain.handle('buddy:test', async () => {
 })
 
 app.whenReady().then(() => {
+  globalShortcut.register('CommandOrControl+Shift+B', () => openSettings())
   if (process.platform === 'darwin') app.dock?.hide()
   startInbox()
   createOverlays()
