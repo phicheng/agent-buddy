@@ -56,7 +56,7 @@ npm test         # 測試事件對應和設定檔安裝
 npm run dist     # 打包成安裝檔（輸出到 dist/）
 ```
 
-推一個版本標籤（例如 `v0.1.0`）到 GitHub，GitHub Actions 會自動做出 Mac 和 Windows 安裝檔，放到 Releases。
+每次推到 `main`，GitHub Actions 會自動做出 Mac 和 Windows 安裝檔，放到以 `package.json` 版本號命名的 Release（例如 `v0.1.0`）。要發新版，先把版本號加一。
 
 **簽章（選用）**：在 repo 的 Settings → Secrets 加上下面這些，Mac 版就會簽章並通過 Apple 驗證，使用者打開時就不會被擋：
 `MAC_CERT_P12_BASE64`、`MAC_CERT_PASSWORD`、`APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD`、`APPLE_TEAM_ID`（需要 Apple Developer Program，一年 99 美元）。
