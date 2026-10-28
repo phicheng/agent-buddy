@@ -38,7 +38,10 @@ function createOverlays() {
     w.setAlwaysOnTop(true, 'floating')
     w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
     w.setIgnoreMouseEvents(true, { forward: true })
-    w.loadFile(RENDERER, { query: { mode: 'overlay', display: String(d.id), primary, all } })
+    const wa = d.workArea
+    w.displayId = String(d.id)
+    // the page draws in this screen's coordinates and shrinks its window to just around the critters
+    w.loadFile(RENDERER, { query: { mode: 'overlay', display: String(d.id), primary, all, wx: wa.x, wy: wa.y, fw: wa.width, fh: wa.height } })
     w.once('ready-to-show', () => { if (overlaysShown) w.showInactive() })
     overlays.set(String(d.id), w)
   }
@@ -50,9 +53,8 @@ function resetOverlays() {
   createOverlays()
 }
 
-function fitOverlays() {
-  for (const d of screen.getAllDisplays()) overlays.get(String(d.id))?.setBounds(d.workArea)
-}
+let refitTimer = null
+function fitOverlays() { clearTimeout(refitTimer); refitTimer = setTimeout(resetOverlays, 400) }
 
 function openSettings(agentId) {
   if (settings) {
@@ -137,6 +139,16 @@ function doDisconnect() {
 
 // ---- IPC from the pages ----
 ipcMain.on('buddy:interactive', (e, on) => BrowserWindow.fromWebContents(e.sender)?.setIgnoreMouseEvents(!on, { forward: true }))
+// The overlay page asks to cover only the area around its critters (rect is relative to its screen's work area).
+ipcMain.on('buddy:bounds', (e, r) => {
+  const w = BrowserWindow.fromWebContents(e.sender)
+  const d = w && screen.getAllDisplays().find(x => String(x.id) === w.displayId)
+  if (!d || !r) return
+  const wa = d.workArea
+  const x = Math.max(0, Math.min(wa.width - 1, Math.round(r.x))), y = Math.max(0, Math.min(wa.height - 1, Math.round(r.y)))
+  const width = Math.max(1, Math.min(wa.width - x, Math.round(r.w))), height = Math.max(1, Math.min(wa.height - y, Math.round(r.h)))
+  w.setBounds({ x: wa.x + x, y: wa.y + y, width, height })
+})
 // A critter was dropped outside its screen: tell the page which screen it landed on and where.
 ipcMain.handle('buddy:locate', (_e, x, y) => {
   const d = screen.getDisplayNearestPoint({ x: Math.round(x), y: Math.round(y) })

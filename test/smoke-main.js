@@ -24,12 +24,12 @@ app.whenReady().then(async () => {
   await wait(900)
   codes.push(await post({ hook_event_name: 'PreToolUse', cwd: '/Users/demo/mochi-app', tool_name: 'Read', tool_input: { file_path: '/Users/demo/mochi-app/src/auth.ts' } }))
   codes.push(await post({ hook_event_name: 'PreToolUse', cwd: '/Users/demo/velaro-pricing', tool_name: 'WebSearch', tool_input: { query: 'PIX fees 2026' } }))
-  await wait(2500)
+  await wait(4000)
   await shot('1-live')
   const errs = []
   for (const w of BrowserWindow.getAllWindows()) {
-    const r = await w.webContents.executeJavaScript(`(window.__buddy?{mode:__buddy.MODE,agents:__buddy.agents.map(a=>({name:a.c.name,key:a.c.key||null,state:a.state,text:a.text,visible:a.v.root.visible}))}:'no __buddy')`).catch(e => ({ error: String(e) })) //,agents:agents.map(a=>({name:a.c.name,key:a.c.key||null,state:a.state,text:a.text,visible:a.v.root.visible}))})`).catch(e => ({ error: String(e) }))
-    errs.push(r)
+    const bounds = w.getBounds(); const r = await w.webContents.executeJavaScript(`(window.__buddy?{mode:__buddy.MODE,agents:__buddy.agents.map(a=>({name:a.c.name,key:a.c.key||null,state:a.state,text:a.text,visible:a.v.root.visible}))}:'no __buddy')`).catch(e => ({ error: String(e) })) //,agents:agents.map(a=>({name:a.c.name,key:a.c.key||null,state:a.state,text:a.text,visible:a.v.root.visible}))})`).catch(e => ({ error: String(e) }))
+    errs.push({ ...r, bounds })
   }
   fs.writeFileSync(path.join(out, 'state.json'), JSON.stringify({ codes, windows: errs }, null, 2))
   // connect for real (temp HOME), then dark theme

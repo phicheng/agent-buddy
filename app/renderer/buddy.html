@@ -148,7 +148,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--blue);outline-o
 html,body{overflow:hidden}
 body.overlay,html:has(body.overlay){background:transparent!important}
 body.overlay .app{display:block;height:100%;padding:0}
-body.overlay .stage{position:fixed;inset:0;border-radius:0;background:transparent}
+body.overlay .stage{position:fixed;inset:0;border-radius:0;background:transparent;height:auto!important;min-height:0!important}
 body.overlay .desk,body.overlay .menubar,body.overlay .win,body.overlay .seg,body.overlay .hint,body.overlay .hwbtn,body.overlay .roomtag,body.overlay .rail,body.overlay .preview{display:none!important}
 .preview{position:absolute;left:12px;top:36px;z-index:4;font-size:11.5px;padding:3px 10px;border-radius:99px;background:var(--mb-bg);color:var(--mb-fg)}
 .stage.room .preview{display:none}
@@ -213,6 +213,7 @@ body.overlay .desk,body.overlay .menubar,body.overlay .win,body.overlay .seg,bod
     <div class="card">
       <h2>小夥伴</h2>
       <div class="setrow"><span>浮在桌面上</span><button class="tog" id="tgOverlay" role="switch" aria-checked="true" aria-label="浮在桌面上"></button></div>
+      <div class="setrow"><label for="sizeR">大小</label><input type="range" id="sizeR" min="0.35" max="1.2" step="0.05" style="flex:1;max-width:180px;accent-color:var(--accent)"></div>
       <div class="setrow"><span>開機時自動開啟</span><button class="tog" id="tgAuto" role="switch" aria-checked="false" aria-label="開機時自動開啟"></button></div>
       <div class="lbl" style="margin:0">隨時可以從選單列（Mac）或右下角工作列（Windows）的小圖示叫出這個視窗。</div>
     </div>
@@ -256,6 +257,9 @@ const MODE=new URLSearchParams(location.search).get('mode')||'settings';document
 const IDLE_SLEEP=10*60*1000;
 /* overlays: one window per screen. A critter lives on the screen it was dropped on (default: the main screen). */
 const QS=new URLSearchParams(location.search),DISPLAY=QS.get('display')||'',PRIMARY=QS.get('primary')||'',ALL=(QS.get('all')||'').split(',').filter(Boolean);
+/* the overlay window only covers the area around its critters; the scene is laid out in full-screen coordinates */
+const FW=Number(QS.get('fw'))||0,FH=Number(QS.get('fh'))||0,WX=Number(QS.get('wx'))||0,WY=Number(QS.get('wy'))||0;
+const SHRINK=MODE==='overlay'&&FW>0&&FH>0;
 function belongsHere(c){if(MODE!=='overlay')return true;const d=c.display;return d&&ALL.includes(d)?d===DISPLAY:DISPLAY===PRIMARY}
 /* the first critter is claimed by the first Claude Code project that reports; more projects get their own critter */
 const DEFAULTS=[{id:'a1',name:'Claude',task:'Claude Code',species:'robot',acc:'headphones',color:'#C8BFD8',room:'cowork',fx:.86,fy:.9,on:true}];
@@ -274,7 +278,7 @@ const save=()=>{if(MODE==='settings'){const cur=store.get('buddy.agents',[])||[]
 /* ---------- three ---------- */
 const canvas=$('c'),stageEl=$('stage');
 const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
-renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setClearColor(0x000000,0);
+renderer.setPixelRatio(Math.min(devicePixelRatio,MODE==='overlay'?1.5:2));renderer.setClearColor(0x000000,0);
 renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.outputEncoding=THREE.sRGBEncoding;
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(30,1,0.1,100);
@@ -633,10 +637,13 @@ function tickFx(dt){for(let i=fx.length-1;i>=0;i--){const f=fx[i];f.life-=dt;f.o
 
 /* ---------- view ---------- */
 let halfH=1,halfW=1;const DESK_Z=12;
-function resize(){const w=stageEl.clientWidth,h=stageEl.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();
+let winRect={x:0,y:0}; /* where the overlay window sits on its screen (what we last asked for) */
+function applyView(){if(!SHRINK)return;camera.setViewOffset(FW,FH,winRect.x,winRect.y,Math.max(1,innerWidth),Math.max(1,innerHeight))}
+function resize(){const w=stageEl.clientWidth,h=stageEl.clientHeight;renderer.setSize(w,h,false);camera.aspect=SHRINK?FW/FH:w/h;camera.updateProjectionMatrix();applyView();
   halfH=DESK_Z*Math.tan(camera.fov*Math.PI/360);halfW=halfH*camera.aspect}
 new ResizeObserver(resize).observe(stageEl);
-const deskScale=()=>Math.max(.32,Math.min(.46,halfW/11));
+let SIZE=Number(store.get('buddy.size',.6))||.6;
+const deskScale=()=>Math.max(.32,Math.min(.46,halfW/11))*SIZE;
 const sel=()=>agents.find(A=>A.c.id===selId)||agents[0];
 function setView(v){view=v;hemi.intensity=.8;$('vDesk').setAttribute('aria-pressed',v==='desk');$('vRoom').setAttribute('aria-pressed',v==='room');
   stageEl.classList.toggle('room',v==='room');$('roomtag').hidden=v!=='room';
@@ -693,6 +700,7 @@ function onLive(m){if(!m||!STATES[m.state])return;let A;
   A.live=true;A.lastAt=Date.now();setState(A,m.state,String(m.text||'').slice(0,40))}
 if(window.buddy){window.buddy.onEvent(onLive);window.buddy.onSelect(id=>{const A=agents.find(a=>a.c.id===id);if(A)select(A)})}
 window.addEventListener('storage',e=>{if(!e.key||!e.key.startsWith('buddy.'))return;
+  if(e.key==='buddy.size'){SIZE=Number(JSON.parse(e.newValue||'.6'))||.6;if($('sizeR'))$('sizeR').value=SIZE;return}
   if(MODE==='overlay'){location.reload();return}
   if(e.key==='buddy.agents'){let list=[];try{list=JSON.parse(e.newValue||'[]')||[]}catch(x){}
     if(list.map(c=>c.id).join()!==agents.map(a=>a.c.id).join()){location.reload();return}
@@ -718,13 +726,14 @@ if(MODE==='settings'&&window.buddy){
   $('tgOverlay').onclick=async()=>paintStatus(await window.buddy.toggleOverlay());
   $('tgAuto').onclick=async()=>{const on=$('tgAuto').getAttribute('aria-checked')!=='true';paintStatus(await window.buddy.setAutostart(on))};
 }else if(MODE==='settings'){$('liveSt').textContent='在瀏覽器裡預覽中：要用桌面 App 才能連接 Claude。'}
+if($('sizeR')){$('sizeR').value=SIZE;$('sizeR').oninput=()=>{SIZE=Number($('sizeR').value);store.set('buddy.size',SIZE)}}
 {const want=new URLSearchParams(location.search).get('select');if(want){const A=agents.find(a=>a.c.id===want);if(A)selId=want}}
 /* ---------- pointer: drag on desktop, click to select ---------- */
 const ray=new THREE.Raycaster(),ndc=new THREE.Vector2(),mouse=new THREE.Vector2(),plane=new THREE.Plane(new THREE.Vector3(0,0,1),0),hitP=new THREE.Vector3();
 let down=null,drag=null,hoverA=null,interactive=false,lastClick={A:null,t:0};
 function pick(e){const r=canvas.getBoundingClientRect();ndc.set((e.clientX-r.left)/r.width*2-1,-((e.clientY-r.top)/r.height*2-1));ray.setFromCamera(ndc,camera);
   const vis=agents.filter(A=>A.v.root.visible);let best=null,bd=1e9;vis.forEach(A=>{const h=ray.intersectObject(A.v.root,true);if(h.length&&h[0].distance<bd){bd=h[0].distance;best=A}});return best}
-canvas.addEventListener('pointerdown',e=>{const A=pick(e);down={x:e.clientX,y:e.clientY,A};if(view==='desk'&&A){drag=A;canvas.setPointerCapture(e.pointerId)}});
+canvas.addEventListener('pointerdown',e=>{const A=pick(e);down={x:e.clientX,y:e.clientY,A};if(view==='desk'&&A){drag=A;canvas.setPointerCapture(e.pointerId);if(SHRINK){lastFit=0;fitWindow(performance.now())}}});
 canvas.addEventListener('pointermove',e=>{const r=canvas.getBoundingClientRect();mouse.set((e.clientX-r.left)/r.width*2-1,-((e.clientY-r.top)/r.height*2-1));
   if(drag&&down&&Math.hypot(e.clientX-down.x,e.clientY-down.y)>4){ray.setFromCamera(mouse,camera);ray.ray.intersectPlane(plane,hitP);
     const off=.95*deskScale();drag.c.fx=Math.min(.95,Math.max(.05,hitP.x/(2*halfW)+.5));drag.c.fy=Math.min(.97,Math.max(.25,.5-(hitP.y-off)/(2*halfH)));drag.dragging=true}
@@ -746,8 +755,33 @@ canvas.addEventListener('pointerup',e=>{if(down&&down.A&&Math.hypot(e.clientX-do
 
 /* ---------- loop ---------- */
 const clock=new THREE.Clock();const red=new THREE.Color('#FF6B6B'),tc=new THREE.Color();
+/* keep the overlay window just big enough for the critters and their bubbles */
+let lastFit=0,wantFull=false;const pv=new THREE.Vector3();
+function fitWindow(nowMs){if(nowMs-lastFit<400)return;lastFit=nowMs;
+  const ox=winRect.x,oy=winRect.y,W=innerWidth,H=innerHeight;let r;
+  if(wantFull||drag)r={x:0,y:0,w:FW,h:FH};
+  else{let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+    agents.forEach(A=>{if(!A.v.root.visible)return;[[0,2.7+A.v.top,0],[0,0,0],[1.6,1,0],[-1.6,1,0]].forEach(([x,y,z])=>{pv.set(x,y,z).applyMatrix4(A.v.pet.matrixWorld).project(camera);
+      const px=(pv.x+1)/2*W+ox,py=(1-pv.y)/2*H+oy;x0=Math.min(x0,px);x1=Math.max(x1,px);y0=Math.min(y0,py);y1=Math.max(y1,py)})});
+    if(x0>x1)return;
+    const q=v=>Math.round(v/24)*24;r={x:Math.max(0,q(x0-130)),y:Math.max(0,q(y0-60)),w:0,h:0};r.w=Math.min(FW,q(x1+130))-r.x;r.h=Math.min(FH,q(y1+40))-r.y}
+  /* only resize when the critters no longer fit, or the window has a lot of spare room (avoids constant resizing) */
+  const fits=r.x>=ox&&r.y>=oy&&r.x+r.w<=ox+W&&r.y+r.h<=oy+H,spare=(r.x-ox)+(r.y-oy)+(ox+W-r.x-r.w)+(oy+H-r.y-r.h);
+  if(fits&&spare<240)return;
+  winRect={x:r.x,y:r.y};window.buddy.setBounds(r)}
+/* power saving: low frame rate while everyone is idle, nothing at all on a screen with no critters or while hidden */
+let lastDraw=0,emptyDrawn=false;
 function frame(){
-  const dt=Math.min(clock.getDelta(),.05),t=clock.elapsedTime;
+  if(document.hidden){setTimeout(frame,800);return}
+  const nowMs=performance.now();
+  const here=agents.filter(A=>A.c.on!==false&&belongsHere(A.c));
+  if(MODE==='overlay'&&!here.length&&!fx.length){if(!emptyDrawn){renderer.clear();emptyDrawn=true;agents.forEach(A=>{A.bub.style.display='none'})}setTimeout(frame,600);return}
+  emptyDrawn=false;
+  const lively=view==='room'||!!drag||fx.length>0||here.some(A=>A.pat>0||A.st<1.5||['thinking','searching','coding','tool','error'].includes(A.state));
+  const fps=MODE==='overlay'?(lively?30:12):(lively?60:30);
+  if(nowMs-lastDraw<1000/fps-3){requestAnimationFrame(frame);return}
+  lastDraw=nowMs;
+  const dt=Math.min(clock.getDelta(),.1),t=clock.elapsedTime;
   const roomList=view==='room'?agents.filter(A=>A.c.room===sel().c.room&&A.c.on!==false):[];
   agents.forEach(A=>{
     const v=A.v,c=A.c;A.st+=dt;
@@ -788,7 +822,8 @@ function frame(){
     if(v.ant)v.ant.rotation.z=Math.sin(t*3+A.ph)*.12+(busy?Math.sin(t*12)*.05:0);
   });
   if(view==='room'){envAnims.forEach(f=>f(t));tickParts(dt,t);controls.update()}
-  tickFx(dt);renderer.render(scene,camera);
+  tickFx(dt);applyView();renderer.render(scene,camera);
+  if(SHRINK&&window.buddy)fitWindow(nowMs);
   // bubbles
   const w=stageEl.clientWidth,h=stageEl.clientHeight;
   agents.forEach(A=>{if(!A.v.root.visible)return;const p=wpos(A,0,2.55+A.v.top,0).project(camera);
@@ -798,7 +833,7 @@ function frame(){
   requestAnimationFrame(frame);
 }
 resize();$('hw').onclick=()=>setHw(!hw);setHw(hw);setView('desk');paintList();paintEditor();requestAnimationFrame(frame);
-window.__buddy={MODE,agents,setView}; /* for the smoke test */
+window.__buddy={MODE,agents,setView,dbg:()=>({winRect,iw:innerWidth,ih:innerHeight,view:camera.view&&{...camera.view},cw:canvas.width,ch:canvas.height,dpr:devicePixelRatio,halfH,halfW,feet:agents.map(A=>{const v=new THREE.Vector3().setFromMatrixPosition(A.v.root.matrixWorld);return [v.x,v.y]})})}; /* for the smoke test */
 })();
 </script>
 
