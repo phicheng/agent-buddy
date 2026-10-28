@@ -1,5 +1,5 @@
 // Agent Buddy — desktop shell.
-// - overlay window: transparent, always on top, clicks pass through except over a critter
+// - one overlay window per screen: transparent, always on top, clicks pass through except over a critter
 // - settings window: dress-up, rooms, Claude connection
 // - a local inbox on 127.0.0.1 that Claude Code hooks post to (nothing is sent to the internet)
 const { app, BrowserWindow, screen, ipcMain, Tray, Menu, nativeImage, shell, nativeTheme } = require('electron')
@@ -11,7 +11,8 @@ const hooks = require('./claude-hooks')
 const RENDERER = path.join(__dirname, '..', 'renderer', 'buddy.html')
 const ICON = path.join(__dirname, '..', 'assets', process.platform === 'darwin' ? 'trayTemplate.png' : 'tray.png')
 
-let overlay = null
+const overlays = new Map() // display id -> window
+let overlaysShown = true
 let settings = null
 let tray = null
 let serverError = null
@@ -22,26 +23,35 @@ app.on('second-instance', () => openSettings())
 
 const webPrefs = { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true }
 
-function createOverlay() {
-  const { workArea } = screen.getPrimaryDisplay()
-  overlay = new BrowserWindow({
-    ...workArea,
-    transparent: true, frame: false, resizable: false, movable: false, hasShadow: false,
-    alwaysOnTop: true, skipTaskbar: true, focusable: false, fullscreenable: false,
-    // keep animating while other apps have focus
-    backgroundColor: '#00000000', show: false, webPreferences: { ...webPrefs, backgroundThrottling: false },
-  })
-  overlay.setAlwaysOnTop(true, 'floating')
-  overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  overlay.setIgnoreMouseEvents(true, { forward: true })
-  overlay.loadFile(RENDERER, { query: { mode: 'overlay' } })
-  overlay.once('ready-to-show', () => overlay.showInactive())
-  overlay.on('closed', () => { overlay = null })
+function createOverlays() {
+  const displays = screen.getAllDisplays()
+  const primary = String(screen.getPrimaryDisplay().id)
+  const all = displays.map(d => String(d.id)).join(',')
+  for (const d of displays) {
+    const w = new BrowserWindow({
+      ...d.workArea,
+      transparent: true, frame: false, resizable: false, movable: false, hasShadow: false,
+      alwaysOnTop: true, skipTaskbar: true, focusable: false, fullscreenable: false,
+      // keep animating while other apps have focus
+      backgroundColor: '#00000000', show: false, webPreferences: { ...webPrefs, backgroundThrottling: false },
+    })
+    w.setAlwaysOnTop(true, 'floating')
+    w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+    w.setIgnoreMouseEvents(true, { forward: true })
+    w.loadFile(RENDERER, { query: { mode: 'overlay', display: String(d.id), primary, all } })
+    w.once('ready-to-show', () => { if (overlaysShown) w.showInactive() })
+    overlays.set(String(d.id), w)
+  }
 }
 
-function fitOverlay() {
-  if (!overlay) return
-  overlay.setBounds(screen.getPrimaryDisplay().workArea)
+function resetOverlays() {
+  for (const w of overlays.values()) if (!w.isDestroyed()) w.destroy()
+  overlays.clear()
+  createOverlays()
+}
+
+function fitOverlays() {
+  for (const d of screen.getAllDisplays()) overlays.get(String(d.id))?.setBounds(d.workArea)
 }
 
 function openSettings(agentId) {
@@ -60,7 +70,7 @@ function openSettings(agentId) {
 }
 
 function broadcast(channel, payload) {
-  for (const w of [overlay, settings]) if (w && !w.isDestroyed()) w.webContents.send(channel, payload)
+  for (const w of [...overlays.values(), settings]) if (w && !w.isDestroyed()) w.webContents.send(channel, payload)
 }
 
 // ---- local inbox ----
@@ -86,7 +96,7 @@ function startInbox() {
 }
 
 function statusPayload() {
-  return { ...hooks.status(), serverError, lastEventAt, autostart: app.getLoginItemSettings().openAtLogin, overlayVisible: !!overlay?.isVisible() }
+  return { ...hooks.status(), serverError, lastEventAt, autostart: app.getLoginItemSettings().openAtLogin, overlayVisible: overlaysShown }
 }
 
 // ---- tray ----
@@ -95,7 +105,7 @@ function refreshTray() {
   const st = hooks.status()
   tray.setToolTip(st.connected ? 'Agent Buddy · 已連接 Claude' : 'Agent Buddy · 尚未連接 Claude')
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: overlay?.isVisible() ? '隱藏小夥伴' : '顯示小夥伴', click: toggleOverlay },
+    { label: overlaysShown ? '隱藏小夥伴' : '顯示小夥伴', click: toggleOverlay },
     { label: '打扮與設定…', click: () => openSettings() },
     { type: 'separator' },
     { label: st.connected ? '已連接 Claude Code' : '連接 Claude Code', type: 'checkbox', checked: st.connected, click: () => (st.connected ? doDisconnect() : doConnect()) },
@@ -106,8 +116,8 @@ function refreshTray() {
 }
 
 function toggleOverlay() {
-  if (!overlay) return createOverlay()
-  overlay.isVisible() ? overlay.hide() : overlay.showInactive()
+  overlaysShown = !overlaysShown
+  for (const w of overlays.values()) if (!w.isDestroyed()) (overlaysShown ? w.showInactive() : w.hide())
   refreshTray(); broadcast('buddy:status', statusPayload())
 }
 
@@ -126,7 +136,13 @@ function doDisconnect() {
 }
 
 // ---- IPC from the pages ----
-ipcMain.on('buddy:interactive', (_e, on) => overlay?.setIgnoreMouseEvents(!on, { forward: true }))
+ipcMain.on('buddy:interactive', (e, on) => BrowserWindow.fromWebContents(e.sender)?.setIgnoreMouseEvents(!on, { forward: true }))
+// A critter was dropped outside its screen: tell the page which screen it landed on and where.
+ipcMain.handle('buddy:locate', (_e, x, y) => {
+  const d = screen.getDisplayNearestPoint({ x: Math.round(x), y: Math.round(y) })
+  const wa = d.workArea
+  return { display: String(d.id), fx: (x - wa.x) / wa.width, fy: (y - wa.y) / wa.height }
+})
 ipcMain.on('buddy:open-settings', (_e, agentId) => openSettings(agentId))
 ipcMain.handle('buddy:status', () => statusPayload())
 ipcMain.handle('buddy:connect', () => doConnect())
@@ -146,15 +162,15 @@ ipcMain.handle('buddy:test', async () => {
 app.whenReady().then(() => {
   if (process.platform === 'darwin') app.dock?.hide()
   startInbox()
-  createOverlay()
+  createOverlays()
   const img = nativeImage.createFromPath(ICON)
   if (process.platform === 'darwin') img.setTemplateImage(true)
   tray = new Tray(img)
   tray.on('click', () => (process.platform === 'win32' ? openSettings() : tray.popUpContextMenu()))
   refreshTray()
-  screen.on('display-metrics-changed', fitOverlay)
-  screen.on('display-added', fitOverlay)
-  screen.on('display-removed', fitOverlay)
+  screen.on('display-metrics-changed', fitOverlays)
+  screen.on('display-added', resetOverlays)
+  screen.on('display-removed', resetOverlays)
   // First launch, or not connected yet: open the setup screen.
   if (!hooks.status().connected) openSettings()
 })

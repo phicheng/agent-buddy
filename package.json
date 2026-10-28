@@ -1,7 +1,7 @@
 {
   "name": "agent-buddy",
   "productName": "Agent Buddy",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Cute 3D desktop companions that show what your Claude Code agents are doing, live.",
   "main": "app/main/main.js",
   "author": "Phi Cheng",

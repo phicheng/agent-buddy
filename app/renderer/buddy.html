@@ -254,6 +254,9 @@ const ROOMS={
 };
 const MODE=new URLSearchParams(location.search).get('mode')||'settings';document.body.classList.add(MODE);
 const IDLE_SLEEP=10*60*1000;
+/* overlays: one window per screen. A critter lives on the screen it was dropped on (default: the main screen). */
+const QS=new URLSearchParams(location.search),DISPLAY=QS.get('display')||'',PRIMARY=QS.get('primary')||'',ALL=(QS.get('all')||'').split(',').filter(Boolean);
+function belongsHere(c){if(MODE!=='overlay')return true;const d=c.display;return d&&ALL.includes(d)?d===DISPLAY:DISPLAY===PRIMARY}
 /* the first critter is claimed by the first Claude Code project that reports; more projects get their own critter */
 const DEFAULTS=[{id:'a1',name:'Claude',task:'Claude Code',species:'robot',acc:'headphones',color:'#C8BFD8',room:'cowork',fx:.86,fy:.9,on:true}];
 let cfgs=store.get('buddy.agents',null);
@@ -679,7 +682,7 @@ const SP_ORDER=['husky','girl','boy','ghost','robot'];
 function onLive(m){if(!m||!STATES[m.state])return;let A;
   if(m.key==='__test__')A=MODE==='settings'?sel():(agents.find(a=>a.c.on!==false)||agents[0]);
   else A=agents.find(a=>a.c.key===m.key);
-  if(!A){if(MODE!=='overlay')return; /* the overlay owns creating critters; settings reloads when the list changes */
+  if(!A){if(MODE!=='overlay'||DISPLAY!==PRIMARY)return; /* the overlay owns creating critters; settings reloads when the list changes */
     const free=agents.find(a=>!a.c.key&&a.c.id==='a1');
     if(free){free.c.key=m.key;free.c.task='Claude Code · '+m.label;A=free}
     else{if(agents.length>=8)return;const n=agents.length;
@@ -731,7 +734,15 @@ canvas.addEventListener('pointerleave',()=>{hoverA=null;if(MODE==='overlay'&&int
 canvas.addEventListener('pointerup',e=>{if(down&&down.A&&Math.hypot(e.clientX-down.x,e.clientY-down.y)<5){const A=down.A;
     if(MODE==='overlay'){A.pat=1;hearts(A);const now=Date.now();if(lastClick.A===A&&now-lastClick.t<400&&window.buddy)window.buddy.openSettings(A.c.id);lastClick={A,t:now}}
     else{select(A);A.pat=1;hearts(A)}}
-  if(drag){drag.dragging=false;save()}drag=null;down=null});
+  if(drag){const D=drag;D.dragging=false;
+    const outside=e.clientX<0||e.clientY<0||e.clientX>innerWidth||e.clientY>innerHeight;
+    if(MODE==='overlay'&&outside&&window.buddy){window.buddy.locate(e.screenX,e.screenY).then(r=>{
+        if(r&&r.display!==DISPLAY){D.c.display=r.display;D.c.fx=Math.min(.95,Math.max(.05,r.fx));D.c.fy=Math.min(.97,Math.max(.25,r.fy+.08))}
+        else if(r){D.c.display=DISPLAY}
+        save()}).catch(()=>save());
+      if(interactive){interactive=false;window.buddy.setInteractive(false)}}
+    else{if(MODE==='overlay')D.c.display=DISPLAY;save()}}
+  drag=null;down=null});
 
 /* ---------- loop ---------- */
 const clock=new THREE.Clock();const red=new THREE.Color('#FF6B6B'),tc=new THREE.Color();
@@ -743,7 +754,7 @@ function frame(){
     if(A.state!=='sleeping'&&Date.now()-A.lastAt>IDLE_SLEEP){A.live=false;setState(A,'sleeping','休息中')}
     /* states only change when Claude reports */
     // placement
-    let base=new THREE.Vector3(),scale=1,vis=c.on!==false,ry=0;
+    let base=new THREE.Vector3(),scale=1,vis=c.on!==false&&belongsHere(c),ry=0;
     if(view==='desk'){scale=deskScale();base.set((c.fx-.5)*2*halfW,(.5-c.fy)*2*halfH,0);base.y+=Math.sin(t*1.6+A.ph)*.08;}
     else{const i=roomList.indexOf(A);vis=i>=0;const n=roomList.length;base.set((i-(n-1)/2)*2.4,v.ghost?.25+Math.sin(t*1.6+A.ph)*.08:0,i%2?-.6:0)}
     v.root.visible=vis;A.bub.style.display=vis?'':'none';if(!vis)return;
